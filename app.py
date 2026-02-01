@@ -3,88 +3,95 @@ import pandas as pd
 from fpdf import FPDF
 import io
 
-# --- PDF作成クラス（フォント設定済み） ---
-class NahaDX_PDF(FPDF):
+# --- 那覇会場専用 PDF作成クラス（全ページ対応版） ---
+class NahaFullPDF(FPDF):
     def __init__(self):
         super().__init__()
         self.add_font('IPAexGothic', '', 'ipaexg.ttf')
 
-    def draw_scenario_table(self, df_scenario):
+    def header(self):
+        self.set_font('IPAexGothic', '', 10)
+        self.cell(0, 10, '守成クラブ那覇会場 仕事バンバンプラザ 進行シナリオ', ln=True, align='C')
+
+    def draw_scenario(self, df):
         self.set_font('IPAexGothic', '', 9)
         w = [15, 15, 35, 125] 
-        lh = 7
-        for _, row in df_scenario.iterrows():
-            lines = self.multi_cell(w[3], lh, str(row['進行内容']), split_only=True)
+        lh = 6 
+        for _, row in df.iterrows():
+            content = str(row['進行内容'])
+            lines = self.multi_cell(w[3], lh, content, split_only=True)
             h = max(lh, len(lines) * lh)
-            if self.get_y() + h > 270: self.add_page()
-            curr_x, curr_y = self.x, self.y
+            
+            if self.get_y() + h > 275: self.add_page()
+            
+            curr_y = self.y
             self.cell(w[0], h, str(row['時間']), border=1, align='C')
             self.cell(w[1], h, str(row['担当']), border=1, align='C')
             self.cell(w[2], h, str(row['準備・動き']), border=1)
-            self.multi_cell(w[3], lh, str(row['進行内容']), border=1)
+            self.multi_cell(w[3], lh, content, border=1)
             self.set_y(curr_y + h)
 
-# --- メイン処理 ---
-st.title("那覇会場：運営DXアプリ（列名自動判別版）")
+# --- シナリオのベースデータ（16ページ分を凝縮） ---
+def get_base_scenario(mc_names, tms, guests, reps):
+    tm_text = "、".join(tms[:12]) if tms else "（名簿から抽出）"
+    guest_list = []
+    for i, (_, g) in enumerate(guests.iterrows(), 1):
+        guest_list.append(f"{i})紹介者:{g.get('紹介者','-')}さん / ゲスト:{g.get('会社名','-')} {g.get('氏名','-')}様")
+    
+    return [
+        {"時間": "13:45", "担当": "司会", "準備・動き": "壇上照明OFF", "進行内容": "まもなく開会10分前です。携帯電話は音が出ないようにお願いします。"},
+        {"時間": "13:50", "担当": "石川", "準備・動き": "様子見", "進行内容": "それでは今から例会前の体操をします。本日の指導者は石川一久さんです。"},
+        {"時間": "14:00", "担当": "司会", "準備・動き": "壇上照明OFF", "進行内容": "第1部スタート。それでは皆様スクリーンに注目をお願いします（オープニング動画）。"},
+        {"時間": "14:03", "担当": "司会", "準備・動き": "壇上照明ON", "進行内容": f"第56回那覇会場 開会します。本日の司会は {mc_names} です。"},
+        {"時間": "14:05", "担当": "司会", "準備・動き": "全員起立", "進行内容": f"本日のTMは {tm_text} さんです。ご起立ください。"},
+        {"時間": "14:08", "担当": "代表", "準備・動き": "センターマイク", "進行内容": f"代表挨拶。{reps}さんお願いします。"},
+        {"時間": "14:15", "担当": "司会", "準備・動き": "マイク準備", "進行内容": f"本日お越しの {len(guests)} 名のゲストをご紹介します。"}
+    ] + [{"時間": "", "担当": "", "準備・動き": "", "進行内容": g} for g in guest_list] + [
+        {"時間": "15:39", "担当": "司会", "準備・動き": "第2部開始", "進行内容": "守成マップ動画を流します。比嘉太一さんご起立ください。"},
+        {"時間": "16:04", "担当": "司会", "準備・動き": "紹介者登壇", "進行内容": "入会予定者のご紹介です。皆様、せーの！！めんそ〜れ〜！"},
+        {"時間": "16:18", "担当": "安里", "準備・動き": "出発進行", "進行内容": "本日の出発進行は安里正直さんです。皆様ご起立ください。"},
+        {"時間": "16:21", "担当": "司会", "準備・動き": "終了", "進行内容": "本日の司会は桜井と神田橋でした。次回も楽しみにしております！"}
+    ]
 
-uploaded_file = st.sidebar.file_uploader("名簿（Excel/CSV）をアップロード", type=['xlsx', 'csv'])
+# --- メインアプリ ---
+st.set_page_config(page_title="守成那覇 運営DX", layout="wide")
+st.title("那覇会場：全16ページ・フルシナリオ自動生成")
+
+uploaded_file = st.sidebar.file_uploader("名簿(Excel/CSV)をアップロード", type=['xlsx', 'csv'])
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
     
-    # 【改良】列名を自動で探す機能
-    def find_col(target_keywords):
-        for col in df.columns:
-            if any(key in str(col) for key in target_keywords):
-                return col
+    # 列名の自動判別
+    def find_col(keys):
+        for c in df.columns:
+            if any(k in str(c) for k in keys): return c
         return None
 
-    # 各列の特定
+    col_name = find_col(['氏名', '名前'])
     col_shusei = find_col(['守成', '役'])
-    col_name = find_col(['氏名', '氏', '名'])
-    col_intro = find_col(['紹介者', '紹介'])
-    col_comp = find_col(['会社', '所属'])
-    col_party = find_col(['二次会', '懇親会'])
+    col_comp = find_col(['会社'])
+    col_intro = find_col(['紹介'])
 
-    if not col_name:
-        st.error("「氏名」列が見つかりません。エクセルの項目名を確認してください。")
-    else:
-        # データ抽出
-        tms = df[df[col_shusei].str.contains('★', na=False)][col_name].tolist() if col_shusei else []
-        guests = df[df[col_shusei].str.contains('ゲスト', na=False)] if col_shusei else pd.DataFrame()
-        party_members = df[df[col_party].str.contains('参加予定', na=False)] if col_party else pd.DataFrame()
+    tms = df[df[col_shusei].str.contains('★', na=False)][col_name].tolist() if col_shusei else []
+    guests = df[df[col_shusei].str.contains('ゲスト', na=False)] if col_shusei else pd.DataFrame()
+    rep_name = df[df[col_shusei].str.contains('代表', na=False)][col_name].iloc[0] if col_shusei and not df[df[col_shusei].str.contains('代表', na=False)].empty else "伊集比佐乃"
 
-        tab1, tab2, tab3 = st.tabs(["📋 配置確認", "🖊️ 台本編集・PDF", "🍶 二次会リスト"])
+    st.sidebar.info(f"抽出結果: TM {len(tms)}名 / ゲスト {len(guests)}名")
 
-        with tab1:
-            st.header("1. 基本設定")
-            mc_names = st.text_input("司会担当", "桜井 有里、神田橋 あずさ")
-            st.write(f"読み込まれたテーブルマスター: {', '.join(tms[:12])}")
+    # 1. 配置と編集
+    mc_input = st.text_input("司会担当名", "桜井 有里、神田橋 あずさ")
+    
+    st.header("🖊️ 台本の最終編集 (全セリフ表示)")
+    st.caption("※エディタ内で自由に書き換え、追加が可能です。")
+    
+    # 16ページ分のセリフを流し込んだデータエディタ
+    base_data = get_base_scenario(mc_input, tms, guests, rep_name)
+    edited_df = st.data_editor(pd.DataFrame(base_data), num_rows="dynamic", use_container_width=True)
 
-        with tab2:
-            st.header("2. シナリオの手直しと保存")
-            # 台本の初期データ作成
-            initial_data = [
-                {"時間": "14:00", "担当": "司会", "準備・動き": "照明OFF", "進行内容": "オープニング動画開始。"},
-                {"時間": "14:03", "担当": "司会", "準備・動き": "照明ON", "進行内容": f"第56回例会を開会します。司会は {mc_names} です。"},
-                {"時間": "14:05", "担当": "司会", "準備・動き": "起立", "進行内容": f"本日のTMは {', '.join(tms[:12])} さんです。"}
-            ]
-            if not guests.empty:
-                for i, (_, g) in enumerate(guests.iterrows(), 1):
-                    initial_data.append({"時間": "", "担当": "", "準備・動き": "", "進行内容": f"{i}) 紹介者:{g[col_intro]} / ゲスト:{g[col_comp]} {g[col_name]}様"})
-
-            # エディタで直接編集可能
-            edited_df = st.data_editor(pd.DataFrame(initial_data), num_rows="dynamic", use_container_width=True)
-
-            if st.button("🖨️ PDFを作成してダウンロード"):
-                pdf = NahaDX_PDF()
-                pdf.add_page()
-                pdf.draw_scenario_table(edited_df)
-                st.download_button("📥 ダウンロード", data=bytes(pdf.output()), file_name="naha_scenario.pdf")
-
-        with tab3:
-            st.header(f"3. 二次会リスト ({len(party_members)}名)")
-            if not party_members.empty:
-                st.dataframe(party_members[[col_name, col_comp, col_party]])
-            else:
-                st.write("「参加予定」と記載されたデータが見つかりません。")
+    # 2. PDF生成
+    if st.button("🖨️ フルシナリオ(PDF)をダウンロード"):
+        pdf = NahaFullPDF()
+        pdf.add_page()
+        pdf.draw_scenario(edited_df)
+        st.download_button("📥 PDF保存", data=bytes(pdf.output()), file_name="naha_full_scenario.pdf")
