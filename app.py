@@ -4,7 +4,7 @@ from fpdf import FPDF
 import io
 import os
 
-# --- PDF作成クラス：那覇会場公式フォーマット再現 ---
+# --- 1. PDF作成：原本(新)シナリオ2026年1月 を忠実に再現 ---
 class NahaOfficialPDF(FPDF):
     def __init__(self, m_info, font_path='ipaexg.ttf'):
         super().__init__()
@@ -18,15 +18,15 @@ class NahaOfficialPDF(FPDF):
     def header(self):
         if not self.font_ready: return
         self.set_font('IPAexGothic', '', 12)
-        # 左上ヘッダー
-        self.cell(40, 8, self.m_info['no'], ln=0)
-        self.cell(40, 8, '守成クラブ', ln=0)
+        # 左上：第○回 守成クラブ 那覇会場
+        self.cell(30, 8, self.m_info['no'], ln=0)
+        self.cell(30, 8, '守成クラブ', ln=0)
         self.cell(40, 8, '那覇会場', ln=1)
-        # 右上日付
+        # 右上：日付
         self.set_y(10)
         self.cell(0, 8, self.m_info['date'], ln=True, align='R')
         self.ln(5)
-        # 列ヘッダー
+        # 表のヘッダー：グレー背景
         self.set_fill_color(240, 240, 240)
         self.set_font('IPAexGothic', '', 9)
         w = [15, 15, 35, 125]
@@ -41,18 +41,21 @@ class NahaOfficialPDF(FPDF):
         w, lh = [15, 15, 35, 125], 5.0
         for _, row in df.iterrows():
             c, p = str(row['進行内容']), str(row['準備・動き'])
-            lines = self.multi_cell(w[3], lh, c, split_only=True)
-            h = max(lh, len(lines) * lh) + 4
+            # 進行内容の長さに合わせて行の高さを計算
+            lines_c = self.multi_cell(w[3], lh, c, split_only=True)
+            h = max(lh, len(lines_c) * lh) + 4
+            # ページ跨ぎ処理
             if self.get_y() + h > 275: self.add_page()
-            curr_y = self.get_y()
-            for i in range(4): self.rect(self.get_x() + sum(w[:i]), curr_y, w[i], h)
+            curr_x, curr_y = self.get_x(), self.get_y()
+            # セル枠の描画
+            for i in range(4): self.rect(curr_x + sum(w[:i]), curr_y, w[i], h)
             self.cell(w[0], h, str(row['時間']), align='C')
             self.cell(w[1], h, str(row['担当']), align='C')
-            self.set_xy(self.get_x(), curr_y+2); self.multi_cell(w[2], lh, p)
-            self.set_xy(self.get_x()+w[2], curr_y+2); self.multi_cell(w[3], lh, c)
+            self.set_xy(curr_x + w[0] + w[1], curr_y + 2); self.multi_cell(w[2], lh, p)
+            self.set_xy(curr_x + w[0] + w[1] + w[2], curr_y + 2); self.multi_cell(w[3], lh, c)
             self.set_y(curr_y + h)
 
-# --- 文字コード対策付きCSV読み込み ---
+# --- CSV読み込み補助（文字コードエラー対策） ---
 def load_naha_csv(path):
     if not os.path.exists(path): return None
     for enc in ['utf-8', 'shift_jis', 'cp932']:
@@ -63,24 +66,22 @@ def load_naha_csv(path):
         except: continue
     return None
 
-# --- アプリメイン ---
+# --- アプリ画面設定 ---
 st.set_page_config(page_title="守成那覇 運営DX", layout="wide")
-st.title("守成クラブ那覇会場：運営DXシステム（完全版）")
+st.title("那覇会場：運営資料作成システム（完全統合版）")
 
-# 1. システム診断（サイドバー）
+# サイドバー：システム診断
 st.sidebar.header("🔍 システム診断")
-files = {"台本ひな形": "master_script.csv", "日本語フォント": "ipaexg.ttf"}
 status = True
-for label, filename in files.items():
-    if os.path.exists(filename): st.sidebar.success(f"✅ {label}: OK")
-    else:
+for label, fname in {"台本ひな形": "master_script.csv", "日本語フォント": "ipaexg.ttf"}.items():
+    if os.path.exists(fname): st.sidebar.success(f"✅ {label}: OK")
+    else: 
         st.sidebar.error(f"❌ {label}: 未検出")
         status = False
 
-# 2. 名簿読み込み
 uploaded_file = st.sidebar.file_uploader("今回の名簿（Excel/CSV）を選択", type=['xlsx', 'csv'])
 
-if uploaded_file and status:
+if uploaded_file:
     df_m = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
     cols = df_m.columns.tolist()
     
@@ -91,14 +92,15 @@ if uploaded_file and status:
     def gc(ks): return next((c for c in cols if any(k in str(c) for k in ks)), cols[0])
     c_s, c_n, c_i, c_c, c_p = gc(['守成']), gc(['氏名']), gc(['紹介']), gc(['会社']), gc(['二次会'])
     
+    # データ抽出
     tms = df_m[df_m[c_s].str.contains('★', na=False)][c_n].tolist()
     guests = df_m[df_m[c_s].str.contains('ゲスト', na=False)]
     party = df_m[df_m[c_p].str.contains('参加予定', na=False)] if c_p else pd.DataFrame()
 
-    tab1, tab2, tab3 = st.tabs(["🖋️ シナリオ編集・PDF", "📜 タイムテーブル", "🍶 二次会名簿"])
+    tab1, tab2, tab3 = st.tabs(["🖋️ 台本編集・出力", "📜 タイムテーブル", "🍶 二次会名簿"])
 
     with tab1:
-        st.header("進行シナリオ編集")
+        st.header("進行シナリオ（全16ページ分）")
         m_df = load_naha_csv("master_script.csv")
         if m_df is not None:
             rows = []
@@ -107,43 +109,46 @@ if uploaded_file and status:
                     for i, (_, g) in enumerate(guests.iterrows(), 1):
                         rows.append(["", "", "", f"{i}) 紹介者:{g[c_i]}さん / ゲスト:{g[c_c]} {g[c_n]}様"])
                 else:
-                    txt = str(r['進行内容']).replace("{mcs}", "桜井有里、神田橋あずさ").replace("{tk}", "普天間 忍").replace("{tms}", "、".join(tms[:12])).replace("{rep}", "伊集比佐乃").replace("{dep}", "安里正直").replace("{mapper}", "比嘉太一").replace("{len_guests}", str(len(guests)))
+                    # 変数置換（原本16ページをすべて自動反映）
+                    txt = str(r['進行内容']).replace("{mcs}", "桜井有里、神田橋あずさ").replace("{tk}", "普天間 忍").replace("{tms}", "、".join(tms[:12])).replace("{rep}", "伊集比佐乃").replace("{dep}", "安里正直").replace("{len_guests}", str(len(guests)))
                     rows.append([r['時間'], r['担当'], r['準備・動き'], txt])
             
             # 編集・プレビュー
-            ed_sc = st.data_editor(pd.DataFrame(rows, columns=["時間", "担当", "準備・動き", "進行内容"]), use_container_width=True)
-            st.subheader("👀 全文プレビュー")
-            st.table(ed_sc)
+            ed_sc = st.data_editor(pd.DataFrame(rows, columns=["時間", "担当", "準備・動き", "進行内容"]), use_container_width=True, key="sc_ed")
+            st.subheader("👀 全文プレビュー（印刷イメージ）")
+            st.table(ed_sc) # クリック不要で全文表示
 
-            # ダウンロード
-            col_d1, col_d2 = st.columns(2)
-            fmt = col_d1.selectbox("形式を選択", ["PDF", "Excel"])
+            # 保存機能（PDF/Excel）
+            st.write("---")
+            c_d1, c_d2 = st.columns(2)
+            fmt = c_d1.selectbox("保存形式を選択", ["PDF", "Excel"])
             if fmt == "PDF":
-                pdf = NahaOfficialPDF({'no': m_no, 'date': m_date})
-                pdf.add_page(); pdf.draw_rows(ed_sc)
-                col_d2.download_button("📥 PDF保存", data=bytes(pdf.output()), file_name=f"scenario_{m_no}.pdf")
+                if status: # フォントがある場合のみ
+                    pdf = NahaOfficialPDF({'no': m_no, 'date': m_date})
+                    pdf.add_page(); pdf.draw_rows(ed_sc)
+                    c_d2.download_button("📥 シナリオPDFを保存", data=bytes(pdf.output()), file_name=f"scenario_{m_no}.pdf")
+                else: c_d2.warning("フォントが見当たらないためPDF作成不可")
             else:
                 out = io.BytesIO()
                 ed_sc.to_excel(out, index=False)
-                col_d2.download_button("📥 Excel保存", data=out.getvalue(), file_name=f"scenario_{m_no}.xlsx")
+                c_d2.download_button("📥 シナリオExcelを保存", data=out.getvalue(), file_name=f"scenario_{m_no}.xlsx")
+        else:
+            st.error("master_script.csv が正しく読み込めません。診断を確認してください。")
 
     with tab2:
-        st.header("本日の次第（タイムテーブル）")
-        tt_data = [["13:45", "14:00", "開会前アナウンス", "司会"], ["14:00", "14:03", "オープニング動画", "司会"], ["14:03", "14:08", "代表挨拶", "伊集"], ["14:15", "14:16", "ゲスト紹介", "司会"], ["16:18", "16:21", "出発進行", "安里"]]
+        st.header("タイムスケジュール（次第）")
+        # 1月タイムテーブル見本のデータ 
+        tt_data = [["13:45", "14:00", "開会前アナウンス", "司会"], ["14:00", "14:03", "オープニング動画", "司会"], ["14:03", "14:08", "代表挨拶", "伊集"], ["14:15", "14:16", "ゲスト紹介", "司会"], ["14:31", "14:49", "車座商談会①", "TM"], ["15:10", "15:19", "ブース出展PR", "比嘉"], ["16:18", "16:21", "出発進行", "安里"]]
         ed_tt = st.data_editor(pd.DataFrame(tt_data, columns=["開始", "終了", "内容", "担当"]), use_container_width=True)
         
-        col_t1, col_t2 = st.columns(2)
-        tt_fmt = col_t1.selectbox("次第の形式", ["Excel", "PDF"], key="ttfmt")
-        if tt_fmt == "Excel":
-            out_tt = io.BytesIO()
-            ed_tt.to_excel(out_tt, index=False)
-            col_t2.download_button("📥 次第Excel保存", data=out_tt.getvalue(), file_name="timetable.xlsx")
-        else: st.info("次第のPDF出力は準備中です。Excelをご利用ください。")
+        out_tt = io.BytesIO()
+        ed_tt.to_excel(out_tt, index=False)
+        st.download_button("📥 タイムテーブルExcel保存", data=out_tt.getvalue(), file_name="timetable.xlsx")
 
     with tab3:
-        st.header(f"二次会参加者リスト ({len(party)}名)")
+        st.header(f"二次会名簿 ({len(party)}名)")
         if not party.empty:
             st.table(party[[c_n, c_c, c_p]])
             out_p = io.BytesIO()
             party[[c_n, c_c, c_p]].to_excel(out_p, index=False)
-            st.download_button("📥 名簿Excel保存", data=out_p.getvalue(), file_name="party_list.xlsx")
+            st.download_button("📥 二次会名簿Excel保存", data=out_p.getvalue(), file_name="party_list.xlsx")
