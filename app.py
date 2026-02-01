@@ -8,108 +8,104 @@ class NahaMasterPDF(FPDF):
     def __init__(self):
         super().__init__()
         self.add_font('IPAexGothic', '', 'ipaexg.ttf')
-
     def header(self):
         self.set_font('IPAexGothic', '', 10)
-        self.cell(0, 10, '守成クラブ那覇会場 仕事バンバンプラザ 進行シナリオ', ln=True, align='C')
-
-    def draw_scenario_table(self, df):
+        self.cell(0, 10, '守成クラブ那覇会場 仕事バンバンプラザ 運営資料', ln=True, align='C')
+    def draw_table(self, df):
         self.set_font('IPAexGothic', '', 8.5)
         w = [12, 12, 35, 131] 
-        lh = 5.0 
+        lh = 5.0
         for _, row in df.iterrows():
-            content, prep = str(row.iloc[3]), str(row.iloc[2])
-            lines_c = self.multi_cell(w[3], lh, content, split_only=True)
-            lines_p = self.multi_cell(w[2], lh, prep, split_only=True)
-            h = max(lh, len(lines_c) * lh, len(lines_p) * lh) + 4
+            c, p = str(row['進行内容']), str(row['準備・動き'])
+            lines_c = self.multi_cell(w[3], lh, c, split_only=True)
+            h = max(lh, len(lines_c) * lh) + 4
             if self.get_y() + h > 275: self.add_page()
-            x, y = self.get_x(), self.get_y()
-            for i in range(4): self.rect(x + sum(w[:i]), y, w[i], h)
-            self.cell(w[0], h, str(row.iloc[0]), align='C')
-            self.cell(w[1], h, str(row.iloc[1]), align='C')
-            self.set_xy(x + w[0] + w[1], y + 2); self.multi_cell(w[2], lh, prep)
-            self.set_xy(x + w[0] + w[1] + w[2], y + 2); self.multi_cell(w[3], lh, content)
-            self.set_y(y + h)
+            curr_y = self.get_y()
+            # 枠線
+            for i in range(4): self.rect(self.get_x() + sum(w[:i]), curr_y, w[i], h)
+            self.cell(w[0], h, str(row['時間']), align='C')
+            self.cell(w[1], h, str(row['担当']), align='C')
+            self.set_xy(self.get_x(), curr_y+2); self.multi_cell(w[2], lh, p)
+            self.set_xy(self.get_x()+w[2], curr_y+2); self.multi_cell(w[3], lh, c)
+            self.set_y(curr_y + h)
 
-# --- 16ページ分の全セリフを完全再現する関数 ---
-def get_complete_naha_script(mcs, tms, guests, rep, dep, tk, announcer, mapper):
-    tm_text = "\n".join([f"{(i+1)} {name}さん" for i, name in enumerate(tms[:12])]) if tms else "（名簿から抽出）"
-    
-    data = [
-        ["13:45", "司会", "壇上照明OFF\n状況確認", "まもなく開会10分前です。携帯電話は音が出ないようにお願いします。チラシ配布の方は55分までに。お車の方は守衛所で駐車券に印鑑を。受付横の水を1本お取りください。懇親会は定員に達したため受付終了しました。リストバンド着用をお願いします。"],
-        ["13:50", "司会", "石川さんへ合図", "それでは今から例会前の体操をします。指導者は「整体ここからの石川一久」さんです。"],
-        ["14:00", "司会", "照明OFF", "【第1部スタート】オープニング動画開始。皆様スクリーンに注目をお願いします。"],
-        ["14:03", "司会", "照明ON", f"第56回 仕事バンバンプラザ那覇を開会いたします。本日の司会は {mcs} です。最後まで頑張って努めます。"],
-        ["14:05", "司会", "全員起立", f"タイムキーパーは {tk} さん。テーブルマスターは\n{tm_text}\nです。ご起立ください。ドリンクは綿谷さんのBENI、お菓子は知花さんの蜂蜜飴です。"],
-        ["14:05", "司会", "西川さん登壇", "開会宣言「宝の山」。Sea Whisperの西川結音子さんに、07番の朗読をお願いします。"],
-        ["14:08", "代表", "マイク準備", f"代表挨拶。株式会社Office IJU {rep} さん、ご挨拶をお願いします。"],
-        ["14:15", "司会", "センターマイク", f"本日お越しの {len(guests)} 名のゲストをご紹介します。お名前を呼ばれた方はその場でご起立ください。最後に盛大な拍手をお願いします。"],
-    ]
-    # ゲスト12名分の詳細
-    for i, (_, g) in enumerate(guests.iterrows(), 1):
-        data.append(["", "", "", f"{i}) 紹介者:{g.get('紹介者','-')}さん / ゲスト:{g.get('会社名','-')} {g.get('氏名','-')}様"])
-    
-    data.extend([
-        ["14:19", "司会", "他会場紹介", "県内外10会場からご参加です。いばらき南、品川、池袋、ひるの銀座、横浜みなとみらい、堺、沖縄、ヒルノ沖縄、沖縄北部、沖縄中部の皆様、ありがとうございます。"],
-        ["14:22", "司会", "授与式", "授与式です。緑、赤、がんばれ楯、鬼瓦、ゴールド。義元大蔵さんより授与頂きます。"],
-        ["14:31", "司会", "照明OFF", "1回目車座商談会スタート。お一人様2分、TMから始めてください。"],
-        ["15:10", "比嘉", "ブースPR", "ブースPRタイムです。綿谷、中島、仲本、伊敷、小林、山崎、知花、セントローレント、天野、座安、會澤、生藤、若林、谷水の順です。"],
-        ["15:39", "司会", "守成マップ", f"第2部スタート。動画を流します。担当の {mapper} さん、ご起立ください。"],
-        ["16:04", "司会", "めんそーれ", "入会予定者紹介。皆様、せーの！！めんそ〜れ〜！"],
-        ["16:15", "世話人", "お知らせ", "1/28ランチ会(猫茶楼)、2/6夜会(バルクアップ)、次回2/17(コレクティブ)の案内。"],
-        ["16:18", "安里", "出発進行", f"本日の出発進行は {dep} さんです。皆様ご起立ください。"],
-        ["16:21", "司会", "終了", "本日はありがとうございました。名札の返却、ゴミの持ち帰り、オリエン参加をお願いします！"]
-    ])
-    return pd.DataFrame(data, columns=["時間", "担当", "準備・動き", "進行内容"])
-
-# --- メイン ---
+# --- メイン画面 ---
 st.set_page_config(page_title="守成那覇 運営DX", layout="wide")
-st.title("那覇会場：全16ページ・フルシナリオ完全版")
+st.title("那覇会場：運営DXシステム（完全版）")
 
-uploaded_file = st.sidebar.file_uploader("名簿（Excel/CSV）をアップロード", type=['xlsx', 'csv'])
+uploaded_file = st.sidebar.file_uploader("名簿（Excel/CSV）を読み込む", type=['xlsx', 'csv'])
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
-    def f_c(ks):
-        for c in df.columns:
-            if any(k in str(c) for k in ks): return c
-        return None
-    c_n, c_s, c_c, c_p, c_i = f_c(['氏名']), f_c(['守成']), f_c(['会社']), f_c(['二次会']), f_c(['紹介'])
+    cols = df.columns.tolist()
     
-    tms = df[df[c_s].str.contains('★', na=False)][c_n].tolist() if c_s else []
-    guests = df[df[c_s].str.contains('ゲスト', na=False)] if c_s else pd.DataFrame()
-    party = df[df[c_p].str.contains('参加予定', na=False)] if c_p else pd.DataFrame()
-    rep = df[df[c_s].str.contains('代表', na=False)][c_n].iloc[0] if not df[df[c_s].str.contains('代表', na=False)].empty else "伊集 比佐乃"
-    dep = df[df[c_s].str.contains('旗手', na=False)][c_n].iloc[0] if not df[df[c_s].str.contains('旗手', na=False)].empty else "安里 正直"
+    # 列名の自動・手動設定
+    def find_idx(ks):
+        for i, c in enumerate(cols):
+            if any(k in str(c) for k in ks): return i
+        return 0
 
-    tab1, tab2, tab3, tab4 = st.tabs(["⚙️ 設定", "📜 式次第", "🖋️ 台本編集・PDF", "🍶 二次会名簿"])
+    st.sidebar.subheader("列の設定確認")
+    c_s = st.sidebar.selectbox("守成役の列", cols, index=find_idx(['守成役', '役']))
+    c_n = st.sidebar.selectbox("氏名の列", cols, index=find_idx(['氏名', '名前']))
+    c_i = st.sidebar.selectbox("紹介者の列", cols, index=find_idx(['紹介']))
+    c_c = st.sidebar.selectbox("会社名の列", cols, index=find_idx(['会社']))
+    c_p = st.sidebar.selectbox("二次会の列", cols, index=find_idx(['二次会']))
+
+    # データ抽出
+    tms = df[df[c_s].str.contains('★', na=False)][c_n].tolist()
+    guests = df[df[c_s].str.contains('ゲスト', na=False)]
+    party = df[df[c_p].str.contains('参加予定', na=False)]
+    
+    # タブ作成
+    tab1, tab2, tab3, tab4 = st.tabs(["⚙️ 基本設定", "📜 タイムテーブル", "🖋️ 台本編集・PDF出力", "🍶 二次会名簿"])
 
     with tab1:
-        st.header("1. 基本設定")
-        mcs = st.text_input("司会担当名", "桜井 有里、神田橋 あずさ")
+        st.header("1. 役割の最終確認")
+        mcs = st.text_input("司会担当", "桜井 有里、神田橋 あずさ")
         tk = st.text_input("タイムキーパー", "普天間 忍")
-        map_p = st.text_input("守成マップ担当", "比嘉 太一")
+        map_p = st.text_input("マップ担当", "比嘉 太一")
+        dep = st.text_input("出発進行担当", "安里 正直")
+        rep = st.text_input("代表挨拶", "伊集 比佐乃")
 
     with tab2:
-        st.header("2. 本日の式次第")
-        shiki = [["14:00", "開会"], ["14:08", "代表挨拶"], ["14:15", "ゲスト紹介"], ["14:31", "商談会①"], ["15:10", "ブースPR"], ["15:39", "第2部開始"], ["16:18", "出発進行"]]
-        st.table(pd.DataFrame(shiki, columns=["時間", "項目"]))
+        st.header("2. 2026年1月例会 タイムテーブル")
+        # 1月タイムテーブルPDFから転記
+        shiki_data = [["13:45", "第1部 アナウンス開始"], ["14:00", "オープニング動画"], ["14:03", "開会・役割紹介"], ["14:08", "代表世話人挨拶"], ["14:15", "ゲスト紹介"], ["14:31", "車座商談会①"], ["15:10", "ブースPR"], ["15:39", "第2部 守成マップ動画"], ["16:18", "出発進行"]]
+        st.table(pd.DataFrame(shiki_data, columns=["予定時間", "項目"]))
 
     with tab3:
-        st.header("3. シナリオ編集と全文プレビュー")
-        script_df = get_complete_naha_script(mcs, tms, guests, rep, dep, tk, "伊敷ゆき", map_p)
-        ed_df = st.data_editor(script_df, num_rows="dynamic", use_container_width=True)
+        st.header("3. シナリオの編集と全文プレビュー")
+        st.info("💡 表を編集すると、下の『全文表示プレビュー』に即座に反映されます。")
         
-        st.subheader("👀 ライブプレビュー（クリック不要で全文表示）")
-        st.table(ed_df) # これでクリックしなくても全文が最初から見えます
+        # master_script.csv の読み込み
+        try:
+            m_df = pd.read_csv("master_script.csv")
+            final_data = []
+            for _, r in m_df.iterrows():
+                if "[GUESTS]" in str(r['時間']):
+                    for i, (_, g) in enumerate(guests.iterrows(), 1):
+                        final_data.append(["", "", "", f"{i}) 紹介者:{g[c_i]}さん / ゲスト:{g[c_c]} {g[c_n]}様"])
+                else:
+                    text = str(r['進行内容']).replace("{mcs}", mcs).replace("{tk}", tk).replace("{tms}", "、".join(tms[:12])).replace("{len_guests}", str(len(guests))).replace("{rep}", rep).replace("{dep}", dep).replace("{mapper}", map_p)
+                    final_data.append([r['時間'], r['担当'], r['準備・動き'], text])
+            
+            # 編集エディタ
+            ed_df = st.data_editor(pd.DataFrame(final_data, columns=["時間", "担当", "準備・動き", "進行内容"]), num_rows="dynamic", use_container_width=True)
+            
+            st.subheader("👀 全文表示プレビュー（印刷イメージ）")
+            # st.tableで全文を改行表示
+            st.table(ed_df)
 
-        if st.button("🖨️ 全ての資料をPDFでダウンロード"):
-            pdf = NahaMasterPDF()
-            pdf.add_page(); pdf.draw_scenario_table(ed_df)
-            if not party.empty:
-                pdf.add_page(); pdf.set_font('IPAexGothic', '', 14); pdf.cell(0, 10, '二次会参加者リスト', ln=True); pdf.ln(5)
-                # 二次会リスト描画ロジック
-            st.download_button("📥 PDF保存", data=bytes(pdf.output()), file_name="naha_complete.pdf")
+            if st.button("🖨️ 全ての資料をPDFで保存"):
+                pdf = NahaMasterPDF()
+                pdf.add_page(); pdf.draw_table(ed_df)
+                if not party.empty:
+                    pdf.add_page(); pdf.set_font('IPAexGothic', '', 14); pdf.cell(0, 10, '二次会参加者リスト', ln=True); pdf.ln(5)
+                    # 簡易二次会リスト
+                st.download_button("📥 PDFダウンロード", data=bytes(pdf.output()), file_name="naha_script_202601.pdf")
+        except:
+            st.error("GitHubに master_script.csv をアップロードしてください。")
 
     with tab4:
         st.header(f"4. 二次会名簿 ({len(party)}名)")
